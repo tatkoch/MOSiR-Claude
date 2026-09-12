@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Obłożenie basenu — MOSiR Łańcut</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<style>
+  :root {
+    --teal: #0F5C73;
+    --aqua: #2EC4B6;
+    --ink: #1B2B34;
+    --muted: #6B7C82;
+    --bg: #F5FAFB;
+    --card: #FFFFFF;
+    --line: #DCE8EA;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; margin: 0; }
+  .subtitle { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .status-bar {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin: 20px 0;
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .status-bar strong { color: var(--ink); }
+  button.refresh {
+    border: none;
+    background: var(--teal);
+    color: #fff;
+    border-radius: 7px;
+    padding: 7px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .error-box {
+    background: #FBEAEA;
+    border: 1px solid #F0C6C6;
+    color: #8A2E2E;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    margin-bottom: 20px;
+    display: none;
+  }
+  .layout { display: flex; gap: 24px; flex-wrap: wrap; }
+  .filters {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px;
+    width: 230px;
+    flex-shrink: 0;
+  }
+  .filter-group { margin-bottom: 22px; }
+  .filter-group .title { font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--muted);
+    border-radius: 7px;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .chip.active { border-color: var(--teal); background: var(--teal); color: #fff; }
+  .summary { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .summary strong { color: var(--ink); }
+  .chart-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px;
+    flex: 1;
+    min-width: 320px;
+  }
+  .chart-title { font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+  .empty-msg { color: var(--muted); font-size: 13px; padding: 40px 0; text-align: center; }
+  canvas { max-height: 340px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Obłożenie basenu — MOSiR Łańcut</h1>
+    <div class="subtitle">Dane odświeżają się automatycznie z repozytorium przy każdym otwarciu tej strony.</div>
+
+    <div class="status-bar">
+      <span id="statusText">Wczytuję dane…</span>
+      <button class="refresh" onclick="wczytajDane()">Odśwież teraz</button>
+    </div>
+
+    <div class="error-box" id="errorBox"></div>
+
+    <div class="layout" id="mainLayout" style="display:none;">
+      <div class="filters">
+        <div class="filter-group">
+          <div class="title">Rok</div>
+          <div class="chips" id="chipsRok"></div>
+        </div>
+        <div class="filter-group">
+          <div class="title">Miesiąc</div>
+          <div class="chips" id="chipsMiesiac"></div>
+        </div>
+        <div class="filter-group">
+          <div class="title">Dzień tygodnia</div>
+          <div class="chips" id="chipsDzien"></div>
+        </div>
+        <div class="summary" id="summaryText"></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">Średnia liczba osób wg godziny</div>
+        <div id="emptyMsg" class="empty-msg" style="display:none;">Brak danych dla wybranych filtrów.</div>
+        <canvas id="wykres"></canvas>
+      </div>
+    </div>
+  </div>
+
+<script>
+// Ścieżka WZGLĘDNA — działa automatycznie po wystawieniu tej strony przez GitHub Pages
+// w tym samym repozytorium co folder data/. Nie trzeba wpisywać żadnego adresu URL.
+const CSV_URL = "data/basen_dane.csv";
+
+const NAZWY_MIESIECY = ["Sty","Lut","Mar","Kwi","Maj","Cze","Lip","Sie","Wrz","Paź","Lis","Gru"];
+const DNI_TYGODNIA = [
+  { label: "Pon", value: 1 }, { label: "Wt", value: 2 }, { label: "Śr", value: 3 },
+  { label: "Czw", value: 4 }, { label: "Pt", value: 5 }, { label: "Sob", value: 6 },
+  { label: "Nd", value: 0 },
+];
+
+let rows = [];
+let selYears = new Set();
+let selMonths = new Set();
+let selDays = new Set(DNI_TYGODNIA.map(d => d.value));
+let chart = null;
+
+function parseCsvText(text) {
+  const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+  return parsed.data.map(r => {
+    const [rok, miesiac, dzien] = (r.data || "").split("-").map(Number);
+    if (!rok || !miesiac || !dzien) return null;
+    const dt = new Date(rok, miesiac - 1, dzien);
+    return {
+      data: r.data,
+      rok, miesiac,
+      dzienTygodnia: dt.getDay(),
+      godzina: Number(r.godzina),
+      osoby: Number(r.osoby),
+    };
+  }).filter(r => r && Number.isFinite(r.osoby) && Number.isFinite(r.godzina));
+}
+
+function wczytajDane() {
+  document.getElementById("statusText").textContent = "Wczytuję dane…";
+  document.getElementById("errorBox").style.display = "none";
+  fetch(CSV_URL + "?t=" + Date.now()) // omija cache przeglądarki
+    .then(res => {
+      if (!res.ok) throw new Error("Serwer zwrócił błąd " + res.status);
+      return res.text();
+    })
+    .then(text => {
+      const dane = parseCsvText(text);
+      if (dane.length === 0) throw new Error("Plik CSV nie zawiera poprawnych wierszy danych.");
+      rows = dane;
+      selYears = new Set(rows.map(r => r.rok));
+      selMonths = new Set(rows.map(r => r.miesiac));
+      selDays = new Set(DNI_TYGODNIA.map(d => d.value));
+      const teraz = new Date().toLocaleString("pl-PL");
+      document.getElementById("statusText").innerHTML =
+        `Ostatnie odświeżenie: <strong>${teraz}</strong> · wierszy: <strong>${rows.length}</strong>`;
+      document.getElementById("mainLayout").style.display = "flex";
+      renderFiltry();
+      renderWykres();
+    })
+    .catch(err => {
+      document.getElementById("statusText").textContent = "Błąd wczytywania danych.";
+      const box = document.getElementById("errorBox");
+      box.style.display = "block";
+      box.textContent = "Nie udało się pobrać data/basen_dane.csv (" + err.message + "). " +
+        "Sprawdź, czy ta strona jest wystawiona przez GitHub Pages z tego samego repozytorium co folder data/.";
+    });
+}
+
+function chip(label, active, onClick) {
+  const b = document.createElement("button");
+  b.className = "chip" + (active ? " active" : "");
+  b.textContent = label;
+  b.onclick = onClick;
+  return b;
+}
+
+function renderFiltry() {
+  const lata = Array.from(new Set(rows.map(r => r.rok))).sort();
+  const miesiace = Array.from(new Set(rows.map(r => r.miesiac))).sort((a,b) => a-b);
+
+  const cRok = document.getElementById("chipsRok");
+  cRok.innerHTML = "";
+  lata.forEach(rok => {
+    cRok.appendChild(chip(rok, selYears.has(rok), () => {
+      selYears.has(rok) ? selYears.delete(rok) : selYears.add(rok);
+      renderFiltry(); renderWykres();
+    }));
+  });
+
+  const cMies = document.getElementById("chipsMiesiac");
+  cMies.innerHTML = "";
+  miesiace.forEach(m => {
+    cMies.appendChild(chip(NAZWY_MIESIECY[m-1], selMonths.has(m), () => {
+      selMonths.has(m) ? selMonths.delete(m) : selMonths.add(m);
+      renderFiltry(); renderWykres();
+    }));
+  });
+
+  const cDzien = document.getElementById("chipsDzien");
+  cDzien.innerHTML = "";
+  DNI_TYGODNIA.forEach(d => {
+    cDzien.appendChild(chip(d.label, selDays.has(d.value), () => {
+      selDays.has(d.value) ? selDays.delete(d.value) : selDays.add(d.value);
+      renderFiltry(); renderWykres();
+    }));
+  });
+}
+
+function renderWykres() {
+  const przefiltrowane = rows.filter(r =>
+    selYears.has(r.rok) && selMonths.has(r.miesiac) && selDays.has(r.dzienTygodnia)
+  );
+
+  const kubelki = {};
+  for (let g = 6; g <= 21; g++) kubelki[g] = { suma: 0, liczba: 0 };
+  const dniSet = new Set();
+  przefiltrowane.forEach(r => {
+    if (kubelki[r.godzina]) {
+      kubelki[r.godzina].suma += r.osoby;
+      kubelki[r.godzina].liczba += 1;
+    }
+    dniSet.add(r.data);
+  });
+
+  document.getElementById("summaryText").innerHTML =
+    `Dopasowanych dni: <strong>${dniSet.size}</strong><br>Odczytów: <strong>${przefiltrowane.length}</strong>`;
+
+  const godziny = Object.keys(kubelki).map(Number);
+  const srednie = godziny.map(g => kubelki[g].liczba ? Math.round((kubelki[g].suma / kubelki[g].liczba) * 10) / 10 : null);
+  const liczby = godziny.map(g => kubelki[g].liczba);
+
+  const emptyMsg = document.getElementById("emptyMsg");
+  const canvas = document.getElementById("wykres");
+
+  if (dniSet.size === 0) {
+    emptyMsg.style.display = "block";
+    canvas.style.display = "none";
+    return;
+  }
+  emptyMsg.style.display = "none";
+  canvas.style.display = "block";
+
+  if (chart) chart.destroy();
+  chart = new Chart(canvas.getContext("2d"), {
+    type: "line",
+    data: {
+      labels: godziny.map(g => g + ":00"),
+      datasets: [{
+        label: "Średnia liczba osób",
+        data: srednie,
+        borderColor: "#0F5C73",
+        backgroundColor: "#0F5C73",
+        pointRadius: 3,
+        borderWidth: 2.5,
+        tension: 0.3,
+        spanGaps: true,
+      }],
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.parsed.y ?? "brak"} os. (n=${liczby[ctx.dataIndex]})`,
+          },
+        },
+      },
+      scales: {
+        y: { beginAtZero: true, grid: { color: "#DCE8EA" } },
+        x: { grid: { display: false } },
+      },
+    },
+  });
+}
+
+wczytajDane();
+</script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+name: Zbieranie danych o liczbie osób na basenie
+
+on:
+  schedule:
+    # Uruchamiaj co 15 minut, 24/7 (czas w cron jest zawsze w UTC).
+    # Skrypt scrape.py sam sprawdza, czy jest akurat 6:00–22:00 czasu
+    # polskiego i poza tym oknem nic nie zapisuje — dzięki temu nie trzeba
+    # martwić się o zmianę czasu letni/zimowy w definicji cron.
+    - cron: "*/15 * * * *"
+  # Pozwala też odpalić ręcznie z zakładki Actions na GitHubie.
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Ustaw Pythona
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Zainstaluj zależności
+        run: pip install -r requirements.txt
+
+      - name: Pobierz dane z MOSiR Łańcut
+        run: python scrape.py
+
+      - name: Zapisz zmiany w repozytorium
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/basen_dane.csv
+          git diff --cached --quiet && echo "Brak nowych danych do zapisania" || (
+            git commit -m "Aktualizacja danych: $(date -u +'%Y-%m-%d %H:%M UTC')"
+            git push
+          )

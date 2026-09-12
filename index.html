@@ -287,24 +287,55 @@ function renderWykres() {
     type: "line",
     data: {
       labels: godziny.map(g => g + ":00"),
-      datasets: [{
-        label: "Średnia liczba osób",
-        data: srednie,
-        borderColor: "#0F5C73",
-        backgroundColor: "#0F5C73",
-        pointRadius: 3,
-        borderWidth: 2.5,
-        tension: 0.3,
-        spanGaps: true,
-      }],
+      datasets: [
+        {
+          label: "Średnia liczba osób",
+          data: srednie,
+          borderColor: "#0F5C73",
+          backgroundColor: "#0F5C73",
+          pointRadius: 3,
+          borderWidth: 2.5,
+          tension: 0.3,
+          spanGaps: true,
+          order: 1,
+        },
+        {
+          label: "Super (30 osób)",
+          data: godziny.map(() => 30),
+          borderColor: "#2E9E5B",
+          borderWidth: 2,
+          borderDash: [6, 5],
+          pointRadius: 0,
+          fill: false,
+          order: 2,
+        },
+        {
+          label: "Ryzykownie (60 osób)",
+          data: godziny.map(() => 60),
+          borderColor: "#D4A017",
+          borderWidth: 2,
+          borderDash: [6, 5],
+          pointRadius: 0,
+          fill: false,
+          order: 3,
+        },
+      ],
     },
     options: {
       responsive: true,
       plugins: {
-        legend: { display: false },
+        legend: {
+          display: true,
+          labels: { boxWidth: 14, font: { size: 11 }, color: "#6B7C82" },
+        },
         tooltip: {
           callbacks: {
-            label: (ctx) => `${ctx.parsed.y ?? "brak"} os. (n=${liczby[ctx.dataIndex]})`,
+            label: (ctx) => {
+              if (ctx.dataset.label === "Średnia liczba osób") {
+                return `${ctx.parsed.y ?? "brak"} os. (n=${liczby[ctx.dataIndex]})`;
+              }
+              return ctx.dataset.label;
+            },
           },
         },
       },

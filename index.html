@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Obłożenie basenu — MOSiR Łańcut</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
   :root {
     --teal: #0F5C73;
@@ -171,6 +171,13 @@ function parseCsvText(text) {
 }
 
 function wczytajDane() {
+  if (typeof Papa === "undefined" || typeof Chart === "undefined") {
+    document.getElementById("statusText").textContent = "Błąd wczytywania bibliotek.";
+    const box = document.getElementById("errorBox");
+    box.style.display = "block";
+    box.textContent = "Nie udało się załadować biblioteki PapaParse lub Chart.js z CDN (cdnjs.cloudflare.com). Sprawdź połączenie internetowe i odśwież stronę.";
+    return;
+  }
   document.getElementById("statusText").textContent = "Wczytuję dane…";
   document.getElementById("errorBox").style.display = "none";
   fetch(CSV_URL + "?t=" + Date.now()) // omija cache przeglądarki

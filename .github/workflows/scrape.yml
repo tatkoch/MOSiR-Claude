@@ -2,12 +2,7 @@ name: Zbieranie danych o liczbie osób na basenie
 
 on:
   schedule:
-    # Uruchamiaj co 15 minut, 24/7 (czas w cron jest zawsze w UTC).
-    # Skrypt scrape.py sam sprawdza, czy jest akurat 6:00–22:00 czasu
-    # polskiego i poza tym oknem nic nie zapisuje — dzięki temu nie trzeba
-    # martwić się o zmianę czasu letni/zimowy w definicji cron.
     - cron: "*/15 * * * *"
-  # Pozwala też odpalić ręcznie z zakładki Actions na GitHubie.
   workflow_dispatch: {}
 
 permissions:

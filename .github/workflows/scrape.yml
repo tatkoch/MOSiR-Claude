@@ -2,8 +2,20 @@ name: Zbieranie danych o liczbie osób na basenie
 
 on:
   schedule:
+    # Uruchamiaj co 15 minut, 24/7 (czas w cron jest zawsze w UTC).
+    # Skrypt scrape.py sam sprawdza, czy jest akurat 6:00–22:00 czasu
+    # polskiego i poza tym oknem nic nie zapisuje — dzięki temu nie trzeba
+    # martwić się o zmianę czasu letni/zimowy w definicji cron.
     - cron: "*/15 * * * *"
+  # Pozwala też odpalić ręcznie z zakładki Actions na GitHubie.
   workflow_dispatch: {}
+
+# Nie pozwala na równoległe uruchomienia — jeśli GitHub odpali kilka zaległych
+# harmonogramów blisko siebie (co się zdarza przy cron co 15 min), kolejne
+# będą czekać w kolejce zamiast wchodzić sobie w drogę przy zapisie do repo.
+concurrency:
+  group: basen-scrape
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -31,7 +43,25 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/basen_dane.csv
-          git diff --cached --quiet && echo "Brak nowych danych do zapisania" || (
-            git commit -m "Aktualizacja danych: $(date -u +'%Y-%m-%d %H:%M UTC')"
-            git push
-          )
+
+          if git diff --cached --quiet; then
+            echo "Brak nowych danych do zapisania"
+            exit 0
+          fi
+
+          git commit -m "Aktualizacja danych: $(date -u +'%Y-%m-%d %H:%M UTC')"
+
+          # Ponawiamy push kilka razy: jeśli w międzyczasie inne uruchomienie
+          # już coś zapisało, pobieramy jego zmiany (rebase) i próbujemy znowu,
+          # zamiast od razu kończyć job błędem.
+          for i in 1 2 3 4 5; do
+            if git pull --rebase origin main && git push; then
+              echo "Zapisano pomyślnie (próba $i)"
+              exit 0
+            fi
+            echo "Próba $i nieudana, ponawiam za 5s..."
+            sleep 5
+          done
+
+          echo "Nie udało się wypchnąć zmian po kilku próbach" >&2
+          exit 1

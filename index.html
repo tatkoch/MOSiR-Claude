@@ -84,6 +84,20 @@
     cursor: pointer;
   }
   .chip.active { border-color: var(--teal); background: var(--teal); color: #fff; }
+  .chip.date-chip { font-variant-numeric: tabular-nums; }
+  .reset-btn {
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--teal);
+    border-radius: 7px;
+    padding: 7px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    width: 100%;
+    margin-bottom: 14px;
+  }
+  .reset-btn:hover { background: #EAF3F5; }
   .summary { font-size: 12px; color: var(--muted); margin-top: 6px; }
   .summary strong { color: var(--ink); }
   .chart-card {
@@ -125,6 +139,11 @@
           <div class="title">Dzień tygodnia</div>
           <div class="chips" id="chipsDzien"></div>
         </div>
+        <div class="filter-group">
+          <div class="title">Konkretne daty (kliknij, aby wyłączyć)</div>
+          <div class="chips" id="chipsDaty"></div>
+        </div>
+        <button class="reset-btn" onclick="wyzerujFiltry()">Wyzeruj filtry</button>
         <div class="summary" id="summaryText"></div>
       </div>
 
@@ -151,7 +170,8 @@ const DNI_TYGODNIA = [
 let rows = [];
 let selYears = new Set();
 let selMonths = new Set();
-let selDays = new Set(DNI_TYGODNIA.map(d => d.value));
+let selDays = new Set([6]); // domyślnie: sobota
+let selDates = new Set(); // konkretne daty (YYYY-MM-DD) uwzględnione w wykresie
 let chart = null;
 
 function parseCsvText(text) {
@@ -168,6 +188,15 @@ function parseCsvText(text) {
       osoby: Number(r.osoby),
     };
   }).filter(r => r && Number.isFinite(r.osoby) && Number.isFinite(r.godzina));
+}
+
+// Domyślny stan filtrów po wczytaniu danych albo po kliknięciu "Wyzeruj filtry":
+// wszystkie lata i miesiące, ale tylko soboty.
+function ustawFiltryDomyslne() {
+  selYears = new Set(rows.map(r => r.rok));
+  selMonths = new Set(rows.map(r => r.miesiac));
+  selDays = new Set([6]); // sobota
+  odswiezDatyPasujaceDoFiltrow();
 }
 
 function wczytajDane() {
@@ -189,9 +218,7 @@ function wczytajDane() {
       const dane = parseCsvText(text);
       if (dane.length === 0) throw new Error("Plik CSV nie zawiera poprawnych wierszy danych.");
       rows = dane;
-      selYears = new Set(rows.map(r => r.rok));
-      selMonths = new Set(rows.map(r => r.miesiac));
-      selDays = new Set(DNI_TYGODNIA.map(d => d.value));
+      ustawFiltryDomyslne();
       const teraz = new Date().toLocaleString("pl-PL");
       document.getElementById("statusText").innerHTML =
         `Ostatnie odświeżenie: <strong>${teraz}</strong> · wierszy: <strong>${rows.length}</strong>`;
@@ -208,12 +235,34 @@ function wczytajDane() {
     });
 }
 
-function chip(label, active, onClick) {
+function wyzerujFiltry() {
+  ustawFiltryDomyslne();
+  renderFiltry();
+  renderWykres();
+}
+
+function chip(label, active, onClick, extraClass) {
   const b = document.createElement("button");
-  b.className = "chip" + (active ? " active" : "");
+  b.className = "chip" + (active ? " active" : "") + (extraClass ? " " + extraClass : "");
   b.textContent = label;
   b.onclick = onClick;
   return b;
+}
+
+// Daty pasujące do aktualnych filtrów Rok/Miesiąc/Dzień tygodnia (bez uwzględniania selDates)
+function datyPasujaceDoFiltrow() {
+  const zbior = new Set(
+    rows
+      .filter(r => selYears.has(r.rok) && selMonths.has(r.miesiac) && selDays.has(r.dzienTygodnia))
+      .map(r => r.data)
+  );
+  return Array.from(zbior).sort().reverse(); // najnowsze najpierw
+}
+
+// Wywoływane po zmianie Roku/Miesiąca/Dnia tygodnia — resetuje wybór
+// konkretnych dat do "wszystkie pasujące zaznaczone".
+function odswiezDatyPasujaceDoFiltrow() {
+  selDates = new Set(datyPasujaceDoFiltrow());
 }
 
 function renderFiltry() {
@@ -225,6 +274,7 @@ function renderFiltry() {
   lata.forEach(rok => {
     cRok.appendChild(chip(rok, selYears.has(rok), () => {
       selYears.has(rok) ? selYears.delete(rok) : selYears.add(rok);
+      odswiezDatyPasujaceDoFiltrow();
       renderFiltry(); renderWykres();
     }));
   });
@@ -234,6 +284,7 @@ function renderFiltry() {
   miesiace.forEach(m => {
     cMies.appendChild(chip(NAZWY_MIESIECY[m-1], selMonths.has(m), () => {
       selMonths.has(m) ? selMonths.delete(m) : selMonths.add(m);
+      odswiezDatyPasujaceDoFiltrow();
       renderFiltry(); renderWykres();
     }));
   });
@@ -243,14 +294,33 @@ function renderFiltry() {
   DNI_TYGODNIA.forEach(d => {
     cDzien.appendChild(chip(d.label, selDays.has(d.value), () => {
       selDays.has(d.value) ? selDays.delete(d.value) : selDays.add(d.value);
+      odswiezDatyPasujaceDoFiltrow();
       renderFiltry(); renderWykres();
     }));
   });
+
+  const cDaty = document.getElementById("chipsDaty");
+  cDaty.innerHTML = "";
+  const daty = datyPasujaceDoFiltrow();
+  if (daty.length === 0) {
+    const info = document.createElement("div");
+    info.style.fontSize = "12px";
+    info.style.color = "var(--muted)";
+    info.textContent = "Brak dat dla wybranych filtrów.";
+    cDaty.appendChild(info);
+  } else {
+    daty.forEach(data => {
+      cDaty.appendChild(chip(data, selDates.has(data), () => {
+        selDates.has(data) ? selDates.delete(data) : selDates.add(data);
+        renderFiltry(); renderWykres();
+      }, "date-chip"));
+    });
+  }
 }
 
 function renderWykres() {
   const przefiltrowane = rows.filter(r =>
-    selYears.has(r.rok) && selMonths.has(r.miesiac) && selDays.has(r.dzienTygodnia)
+    selYears.has(r.rok) && selMonths.has(r.miesiac) && selDays.has(r.dzienTygodnia) && selDates.has(r.data)
   );
 
   const kubelki = {};

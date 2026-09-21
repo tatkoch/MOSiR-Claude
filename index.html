@@ -111,6 +111,48 @@
   .chart-title { font-size: 13px; font-weight: 600; margin-bottom: 12px; }
   .empty-msg { color: var(--muted); font-size: 13px; padding: 40px 0; text-align: center; }
   canvas { max-height: 340px; }
+
+  .right-col { display: flex; flex-direction: column; gap: 20px; flex: 1; min-width: 320px; }
+  .stat-cards { display: flex; gap: 16px; flex-wrap: wrap; }
+  .stat-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px;
+    flex: 1;
+    min-width: 150px;
+  }
+  .stat-card .label { font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 6px; }
+  .stat-card .value { font-size: 26px; font-weight: 700; color: var(--ink); letter-spacing: -0.5px; }
+  .stat-card .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .stat-card.best .value { color: #2E9E5B; }
+  .stat-card.peak .value { color: #D4A017; }
+
+  .heatmap-table { border-collapse: collapse; width: 100%; font-size: 11px; }
+  .heatmap-table th, .heatmap-table td {
+    text-align: center;
+    padding: 5px 3px;
+    border: 1px solid var(--bg);
+    white-space: nowrap;
+  }
+  .heatmap-table th { color: var(--muted); font-weight: 600; font-size: 10.5px; }
+  .heatmap-table td.rowlabel {
+    text-align: right;
+    color: var(--muted);
+    font-weight: 500;
+    padding-right: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .heatmap-table td.cell { color: #fff; font-weight: 600; border-radius: 4px; cursor: default; }
+  .heatmap-table td.cell.empty { background: var(--bg) !important; color: var(--muted); font-weight: 400; }
+  .heatmap-scroll { overflow-x: auto; }
+  .heatmap-legend {
+    display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 11px; color: var(--muted);
+  }
+  .heatmap-legend .bar {
+    height: 8px; flex: 1; border-radius: 4px;
+    background: linear-gradient(to right, #2E9E5B, #D4A017, #C0392B);
+  }
 </style>
 </head>
 <body>
@@ -147,10 +189,36 @@
         <div class="summary" id="summaryText"></div>
       </div>
 
-      <div class="chart-card">
-        <div class="chart-title">Średnia liczba osób wg godziny</div>
-        <div id="emptyMsg" class="empty-msg" style="display:none;">Brak danych dla wybranych filtrów.</div>
-        <canvas id="wykres"></canvas>
+      <div class="right-col">
+        <div class="stat-cards">
+          <div class="stat-card best">
+            <div class="label">Najlepsza godzina</div>
+            <div class="value" id="statBestValue">—</div>
+            <div class="sub" id="statBestSub">—</div>
+          </div>
+          <div class="stat-card peak">
+            <div class="label">Szczyt</div>
+            <div class="value" id="statPeakValue">—</div>
+            <div class="sub" id="statPeakSub">—</div>
+          </div>
+        </div>
+
+        <div class="chart-card">
+          <div class="chart-title">Średnia liczba osób wg godziny</div>
+          <div id="emptyMsg" class="empty-msg" style="display:none;">Brak danych dla wybranych filtrów.</div>
+          <canvas id="wykres"></canvas>
+        </div>
+
+        <div class="chart-card">
+          <div class="chart-title">Heatmapa: dzień × godzina</div>
+          <div id="emptyMsgHeatmap" class="empty-msg" style="display:none;">Brak danych dla wybranych filtrów.</div>
+          <div class="heatmap-scroll"><table class="heatmap-table" id="heatmapTable"></table></div>
+          <div class="heatmap-legend">
+            <span>mało</span>
+            <div class="bar"></div>
+            <span>dużo</span>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -341,6 +409,9 @@ function renderWykres() {
   const srednie = godziny.map(g => kubelki[g].liczba ? Math.round((kubelki[g].suma / kubelki[g].liczba) * 10) / 10 : null);
   const liczby = godziny.map(g => kubelki[g].liczba);
 
+  renderStatCards(godziny, srednie);
+  renderHeatmapa(przefiltrowane, Array.from(dniSet).sort());
+
   const emptyMsg = document.getElementById("emptyMsg");
   const canvas = document.getElementById("wykres");
 
@@ -362,8 +433,18 @@ function renderWykres() {
           label: "Średnia liczba osób",
           data: srednie,
           borderColor: "#0F5C73",
-          backgroundColor: "#0F5C73",
+          backgroundColor: (context) => {
+            const { chart } = context;
+            const { ctx, chartArea } = chart;
+            if (!chartArea) return "rgba(15,92,115,0.2)";
+            const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+            gradient.addColorStop(0, "rgba(15,92,115,0.35)");
+            gradient.addColorStop(1, "rgba(15,92,115,0.02)");
+            return gradient;
+          },
+          fill: true,
           pointRadius: 3,
+          pointBackgroundColor: "#0F5C73",
           borderWidth: 2.5,
           tension: 0.3,
           spanGaps: true,
@@ -414,6 +495,115 @@ function renderWykres() {
         x: { grid: { display: false } },
       },
     },
+  });
+}
+
+// Karty "Najlepsza godzina" (najmniej osób) i "Szczyt" (najwięcej osób)
+function renderStatCards(godziny, srednie) {
+  const pary = godziny.map((g, i) => ({ godzina: g, wartosc: srednie[i] })).filter(p => p.wartosc !== null);
+
+  const elBestV = document.getElementById("statBestValue");
+  const elBestS = document.getElementById("statBestSub");
+  const elPeakV = document.getElementById("statPeakValue");
+  const elPeakS = document.getElementById("statPeakSub");
+
+  if (pary.length === 0) {
+    elBestV.textContent = "—"; elBestS.textContent = "brak danych";
+    elPeakV.textContent = "—"; elPeakS.textContent = "brak danych";
+    return;
+  }
+
+  const najlepsza = pary.reduce((a, b) => (b.wartosc < a.wartosc ? b : a));
+  const szczyt = pary.reduce((a, b) => (b.wartosc > a.wartosc ? b : a));
+
+  elBestV.textContent = najlepsza.godzina + ":00";
+  elBestS.textContent = `śr. ${najlepsza.wartosc} osób`;
+  elPeakV.textContent = szczyt.godzina + ":00";
+  elPeakS.textContent = `śr. ${szczyt.wartosc} osób`;
+}
+
+// Kolor komórki heatmapy — ta sama skala co linie odniesienia na wykresie:
+// 0 (zielony) -> 30 "Super" -> 60 "Ryzykownie" (żółty/pomarańcz) -> maksimum (czerwony)
+function kolorHeatmapy(wartosc, capacity) {
+  const stops = [
+    { v: 0, c: [227, 244, 234] },
+    { v: 30, c: [46, 158, 91] },
+    { v: 60, c: [212, 160, 23] },
+    { v: Math.max(capacity, 61), c: [192, 57, 43] },
+  ];
+  let lo = stops[0], hi = stops[stops.length - 1];
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (wartosc >= stops[i].v && wartosc <= stops[i + 1].v) {
+      lo = stops[i]; hi = stops[i + 1];
+      break;
+    }
+  }
+  const zakres = hi.v - lo.v || 1;
+  const t = Math.min(1, Math.max(0, (wartosc - lo.v) / zakres));
+  const rgb = lo.c.map((ch, i) => Math.round(ch + (hi.c[i] - ch) * t));
+  return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+}
+
+function renderHeatmapa(przefiltrowane, daty) {
+  const table = document.getElementById("heatmapTable");
+  const emptyMsg = document.getElementById("emptyMsgHeatmap");
+  table.innerHTML = "";
+
+  if (daty.length === 0) {
+    emptyMsg.style.display = "block";
+    table.style.display = "none";
+    return;
+  }
+  emptyMsg.style.display = "none";
+  table.style.display = "table";
+
+  const godziny = [];
+  for (let g = 6; g <= 21; g++) godziny.push(g);
+
+  const capacity = Math.max(80, ...przefiltrowane.map(r => r.osoby));
+
+  // kubelki[data][godzina] = { suma, liczba }
+  const kubelki = {};
+  daty.forEach(d => { kubelki[d] = {}; godziny.forEach(g => kubelki[d][g] = { suma: 0, liczba: 0 }); });
+  przefiltrowane.forEach(r => {
+    if (kubelki[r.data] && kubelki[r.data][r.godzina]) {
+      kubelki[r.data][r.godzina].suma += r.osoby;
+      kubelki[r.data][r.godzina].liczba += 1;
+    }
+  });
+
+  const thead = document.createElement("tr");
+  thead.appendChild(document.createElement("th"));
+  godziny.forEach(g => {
+    const th = document.createElement("th");
+    th.textContent = g;
+    thead.appendChild(th);
+  });
+  table.appendChild(thead);
+
+  daty.slice().reverse().forEach(d => {
+    const tr = document.createElement("tr");
+    const tdLabel = document.createElement("td");
+    tdLabel.className = "rowlabel";
+    tdLabel.textContent = d;
+    tr.appendChild(tdLabel);
+
+    godziny.forEach(g => {
+      const komorka = kubelki[d][g];
+      const td = document.createElement("td");
+      td.className = "cell";
+      if (komorka.liczba === 0) {
+        td.classList.add("empty");
+        td.textContent = "";
+      } else {
+        const srednia = Math.round((komorka.suma / komorka.liczba) * 10) / 10;
+        td.style.background = kolorHeatmapy(srednia, capacity);
+        td.textContent = Math.round(srednia);
+        td.title = `${d}, ${g}:00 — śr. ${srednia} osób`;
+      }
+      tr.appendChild(td);
+    });
+    table.appendChild(tr);
   });
 }
 

@@ -10,6 +10,7 @@ polskiego) mieści się w oknie 6:00–22:00, i poza tym oknem nic nie zapisuje.
 """
 
 import csv
+import html
 import os
 import re
 import sys
@@ -28,11 +29,26 @@ GODZINA_START = 6   # 6:00
 GODZINA_KONIEC = 22  # do 22:00 (wyłącznie)
 
 
+class BasenZamkniety(Exception):
+    """Basen jest w tej chwili zamknięty / nieczynny (np. dzień sanitarny) — brak liczby do zapisania."""
+    pass
+
+
+FRAZY_ZAMKNIECIA = [
+    "DZIEŃ SANITARNY", "DZIEN SANITARNY", "PRZERWA TECHNICZNA",
+    "PRZERWA KONSERWACYJNA", "NIECZYNNY", "NIECZYNNA", "NIECZYNNE",
+    "BASEN ZAMKNIĘTY", "BASEN ZAMKNIETY", "ZAMKNIĘTY BASEN",
+]
+
+
 def pobierz_dane(proby=3, opoznienie_sek=5):
     """Pobiera stronę i wyciąga parę liczb 'aktualnie/maksimum'.
 
     Ponawia próbę kilka razy w razie chwilowych problemów sieciowych
-    (timeout, strona chwilowo niedostępna itp.), zamiast od razu się poddawać.
+    (timeout, strona chwilowo niedostępna itp.). Jeśli strona wprost
+    informuje, że basen jest zamknięty (dzień sanitarny, przerwa
+    techniczna itp.), od razu zgłasza to jako BasenZamkniety —
+    bez sensu ponawiać próby w takiej sytuacji.
     """
     ostatni_blad = None
     for proba in range(1, proby + 1):
@@ -40,10 +56,19 @@ def pobierz_dane(proby=3, opoznienie_sek=5):
             resp = requests.get(URL, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
             resp.raise_for_status()
             resp.encoding = resp.apparent_encoding or "utf-8"
-            html = resp.text
+            html_tresc = resp.text
 
-            tekst = re.sub(r"<[^>]+>", " ", html)
+            # Usuwamy znaczniki HTML, dekodujemy encje (np. &nbsp;, &oacute;)
+            # i normalizujemy białe znaki — strona bywa różnie sformatowana
+            # (np. "80/80" albo "80 / 80" z niełamliwą spacją).
+            tekst = re.sub(r"<[^>]+>", " ", html_tresc)
+            tekst = html.unescape(tekst)
             tekst = re.sub(r"\s+", " ", tekst)
+
+            tekst_upper = tekst.upper()
+            for fraza in FRAZY_ZAMKNIECIA:
+                if fraza in tekst_upper:
+                    raise BasenZamkniety(f"Strona sygnalizuje zamknięcie basenu: „{fraza}”")
 
             m = re.search(
                 r"OS[ÓO]B\s+NA\s+BASENIE\s*(\d{1,4})\s*/\s*(\d{1,4})",
@@ -57,6 +82,9 @@ def pobierz_dane(proby=3, opoznienie_sek=5):
                 )
 
             return int(m.group(1)), int(m.group(2))
+
+        except BasenZamkniety:
+            raise  # nie ma sensu ponawiać — stan jest jednoznaczny
 
         except Exception as e:
             ostatni_blad = e
@@ -102,6 +130,9 @@ def main():
 
     try:
         aktualnie, maksimum = pobierz_dane()
+    except BasenZamkniety as e:
+        print(f"{teraz.strftime('%Y-%m-%d %H:%M')} czasu PL -> {e} — pomijam zapis.")
+        return
     except Exception as e:
         print(f"Błąd pobierania danych: {e}", file=sys.stderr)
         sys.exit(1)

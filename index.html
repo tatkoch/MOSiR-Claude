@@ -238,7 +238,7 @@ const DNI_TYGODNIA = [
 let rows = [];
 let selYears = new Set();
 let selMonths = new Set();
-let selDays = new Set([6]); // domyślnie: sobota
+let selDays = new Set([new Date().getDay()]); // domyślnie: dzisiejszy dzień tygodnia
 let selDates = new Set(); // konkretne daty (YYYY-MM-DD) uwzględnione w wykresie
 let chart = null;
 
@@ -259,11 +259,11 @@ function parseCsvText(text) {
 }
 
 // Domyślny stan filtrów po wczytaniu danych albo po kliknięciu "Wyzeruj filtry":
-// wszystkie lata i miesiące, ale tylko soboty.
+// wszystkie lata i miesiące, ale tylko dzisiejszy dzień tygodnia.
 function ustawFiltryDomyslne() {
   selYears = new Set(rows.map(r => r.rok));
   selMonths = new Set(rows.map(r => r.miesiac));
-  selDays = new Set([6]); // sobota
+  selDays = new Set([new Date().getDay()]); // dzisiejszy dzień tygodnia
   odswiezDatyPasujaceDoFiltrow();
 }
 

@@ -1,0 +1,15 @@
+{
+  "wytrenowano": "2026-09-26T09:42:20",
+  "liczba_wierszy_ogolem": 10850,
+  "liczba_wierszy_treningowych": 8680,
+  "liczba_wierszy_testowych": 2170,
+  "mae_osob": 7.17,
+  "cechy": [
+    "godzina",
+    "dzien_tygodnia",
+    "miesiac",
+    "is_weekend",
+    "temperatura",
+    "kod_pogody"
+  ]
+}

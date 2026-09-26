@@ -1,11 +1,11 @@
 """
 Pobiera aktualną liczbę osób na basenie krytym MOSiR Łańcut ze strony:
 https://mosir-lancut.pl/asp/pl_start.asp?typ=14&menu=135&strona=1
-
+oraz bieżącą pogodę dla Łańcuta (Open-Meteo, bez klucza API),
 i dopisuje wynik do pliku data/basen_dane.csv.
 
-Skrypt jest pomyślany do uruchamiania cyklicznie (np. co 15 minut) przez
-GitHub Actions przez całą dobę — sam sprawdza, czy aktualna godzina (czasu
+Skrypt jest wyzwalany z zewnątrz (przez harmonogram na NAS, przez curl
+wywołujący workflow_dispatch) — sam sprawdza, czy aktualna godzina (czasu
 polskiego) mieści się w oknie 6:00–22:00, i poza tym oknem nic nie zapisuje.
 """
 
@@ -21,12 +21,24 @@ from zoneinfo import ZoneInfo
 import requests
 
 URL = "https://mosir-lancut.pl/asp/pl_start.asp?typ=14&menu=135&strona=1"
+POGODA_URL = "https://api.open-meteo.com/v1/forecast?latitude=50.068&longitude=22.231&current_weather=true"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_FILE = os.path.join(SCRIPT_DIR, "data", "basen_dane.csv")
 WARSAW = ZoneInfo("Europe/Warsaw")
 
 GODZINA_START = 6   # 6:00
 GODZINA_KONIEC = 22  # do 22:00 (wyłącznie)
+
+KODY_POGODY = {
+    0: "Bezchmurnie", 1: "Głównie słonecznie", 2: "Częściowo pochmurno",
+    3: "Zachmurzenie całkowite", 45: "Mgła", 48: "Osadzająca się mgła",
+    51: "Mżawka lekka", 53: "Mżawka umiarkowana", 55: "Mżawka gęsta",
+    61: "Deszcz lekki", 63: "Deszcz umiarkowany", 65: "Deszcz intensywny",
+    71: "Śnieg lekki", 73: "Śnieg umiarkowany", 75: "Śnieg intensywny",
+    80: "Przelotne opady deszczu", 81: "Przelotne opady umiarkowane",
+    82: "Przelotne opady intensywne", 95: "Burza", 96: "Burza z lekkim gradem",
+    99: "Burza z silnym gradem",
+}
 
 
 class BasenZamkniety(Exception):
@@ -95,18 +107,42 @@ def pobierz_dane(proby=3, opoznienie_sek=5):
     raise RuntimeError(f"Nie udało się pobrać danych po {proby} próbach: {ostatni_blad}")
 
 
+def pobierz_pogode():
+    """Pobiera aktualną temperaturę i opis warunków dla Łańcuta z Open-Meteo.
+
+    Nie ma klucza API i jest w pełni darmowe. W razie problemu (API padło,
+    timeout) zwraca puste stringi — brak pogody nie powinien nigdy zablokować
+    zapisu samej frekwencji, to dane poboczne.
+    """
+    try:
+        resp = requests.get(POGODA_URL, timeout=10)
+        resp.raise_for_status()
+        dane = resp.json().get("current_weather", {})
+        temperatura = dane.get("temperature", "")
+        kod = dane.get("weathercode")
+        if kod is None:
+            warunki = ""
+        else:
+            opis = KODY_POGODY.get(kod, "Nieznane")
+            warunki = f"{kod} - {opis}"
+        return temperatura, warunki
+    except Exception as e:
+        print(f"Nie udało się pobrać pogody (pomijam): {e}", file=sys.stderr)
+        return "", ""
+
+
 def w_oknie_godzinowym(teraz):
     return GODZINA_START <= teraz.hour < GODZINA_KONIEC
 
 
-def zapisz(aktualnie, maksimum, teraz):
+def zapisz(aktualnie, maksimum, temperatura, warunki, teraz):
     nowy_plik = not os.path.exists(DATA_FILE)
     os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
     with open(DATA_FILE, "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         if nowy_plik:
             writer.writerow(
-                ["timestamp_pl", "data", "godzina", "minuta", "osoby", "maksimum"]
+                ["timestamp_pl", "data", "godzina", "minuta", "osoby", "maksimum", "temperatura", "warunki"]
             )
         writer.writerow(
             [
@@ -116,6 +152,8 @@ def zapisz(aktualnie, maksimum, teraz):
                 teraz.minute,
                 aktualnie,
                 maksimum,
+                temperatura,
+                warunki,
             ]
         )
 
@@ -137,12 +175,16 @@ def main():
         print(f"Błąd pobierania danych: {e}", file=sys.stderr)
         sys.exit(1)
 
-    zapisz(aktualnie, maksimum, teraz)
+    temperatura, warunki = pobierz_pogode()
+
+    zapisz(aktualnie, maksimum, temperatura, warunki, teraz)
     print(
         f"{teraz.strftime('%Y-%m-%d %H:%M')} czasu PL -> "
-        f"{aktualnie}/{maksimum} osób na basenie (zapisano do {DATA_FILE})"
+        f"{aktualnie}/{maksimum} osób na basenie, {temperatura}°C, {warunki} "
+        f"(zapisano do {DATA_FILE})"
     )
 
 
 if __name__ == "__main__":
     main()
+

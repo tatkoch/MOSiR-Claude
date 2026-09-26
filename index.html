@@ -127,6 +127,7 @@
   .stat-card .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
   .stat-card.best .value { color: #2E9E5B; }
   .stat-card.peak .value { color: #D4A017; }
+  .stat-card.predict .value { color: #6B4EA3; }
 
   .heatmap-table { border-collapse: collapse; width: 100%; font-size: 11px; }
   .heatmap-table th, .heatmap-table td {
@@ -162,7 +163,7 @@
 
     <div class="status-bar">
       <span id="statusText">Wczytuję dane…</span>
-      <button class="refresh" onclick="wczytajDane()">Odśwież teraz</button>
+      <button class="refresh" onclick="wczytajDane(); pobierzPredykcje();">Odśwież teraz</button>
     </div>
 
     <div class="error-box" id="errorBox"></div>
@@ -201,6 +202,11 @@
             <div class="value" id="statPeakValue">—</div>
             <div class="sub" id="statPeakSub">—</div>
           </div>
+          <div class="stat-card predict">
+            <div class="label">Przewidywane teraz</div>
+            <div class="value" id="statPredictValue">—</div>
+            <div class="sub" id="statPredictSub">—</div>
+          </div>
         </div>
 
         <div class="chart-card">
@@ -236,6 +242,7 @@ const DNI_TYGODNIA = [
 ];
 
 let rows = [];
+let tabelaPredykcji = null;
 let selYears = new Set();
 let selMonths = new Set();
 let selDays = new Set([new Date().getDay()]); // domyślnie: dzisiejszy dzień tygodnia
@@ -307,6 +314,58 @@ function wyzerujFiltry() {
   ustawFiltryDomyslne();
   renderFiltry();
   renderWykres();
+}
+
+// Wczytuje gotową tabelę predykcji (wygenerowaną z modelu przez
+// generate_predictions.py) i pokazuje przewidywanie dla obecnej chwili.
+function pobierzPredykcje() {
+  fetch("data/predictions.json?t=" + Date.now())
+    .then(res => {
+      if (!res.ok) throw new Error("Serwer zwrócił błąd " + res.status);
+      return res.json();
+    })
+    .then(json => {
+      tabelaPredykcji = json;
+      renderPredykcja();
+    })
+    .catch(() => {
+      document.getElementById("statPredictValue").textContent = "—";
+      document.getElementById("statPredictSub").textContent = "brak pliku predictions.json";
+    });
+}
+
+function renderPredykcja() {
+  const elV = document.getElementById("statPredictValue");
+  const elS = document.getElementById("statPredictSub");
+  if (!elV) return;
+
+  const teraz = new Date();
+  const godzina = teraz.getHours();
+
+  if (godzina < 6 || godzina >= 22) {
+    elV.textContent = "—";
+    elS.textContent = "basen zamknięty (poza 6:00–22:00)";
+    return;
+  }
+  if (!tabelaPredykcji) {
+    elV.textContent = "—";
+    elS.textContent = "wczytuję…";
+    return;
+  }
+
+  const miesiac = teraz.getMonth() + 1;
+  const dzienTygodnia = (teraz.getDay() + 6) % 7; // JS: niedziela=0 -> konwencja Python: poniedziałek=0
+
+  const wartosc = tabelaPredykcji?.[miesiac]?.[dzienTygodnia]?.[godzina];
+  if (wartosc === undefined) {
+    elV.textContent = "—";
+    elS.textContent = "brak predykcji dla tej godziny";
+    return;
+  }
+
+  elV.textContent = Math.round(wartosc);
+  const nazwyDni = ["poniedziałek","wtorek","środę","czwartek","piątek","sobotę","niedzielę"];
+  elS.textContent = `dziś (${nazwyDni[dzienTygodnia]}, ${godzina}:00) — model`;
 }
 
 function chip(label, active, onClick, extraClass) {
@@ -608,6 +667,7 @@ function renderHeatmapa(przefiltrowane, daty) {
 }
 
 wczytajDane();
+pobierzPredykcje();
 </script>
 </body>
 </html>

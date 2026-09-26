@@ -168,6 +168,17 @@
 
     <div class="error-box" id="errorBox"></div>
 
+    <div class="chart-card" id="prognozaCard" style="margin-bottom: 20px; display:none;">
+      <div class="chart-title">Prognoza: dziś i jutro, godzina po godzinie</div>
+      <div class="heatmap-scroll"><table class="heatmap-table" id="prognozaTable"></table></div>
+      <div class="heatmap-legend">
+        <span>mało</span>
+        <div class="bar"></div>
+        <span>dużo</span>
+        <span style="margin-left:16px;">▢ obramowana komórka = teraz</span>
+      </div>
+    </div>
+
     <div class="layout" id="mainLayout" style="display:none;">
       <div class="filters">
         <div class="filter-group">
@@ -366,6 +377,78 @@ function renderPredykcja() {
   elV.textContent = Math.round(wartosc);
   const nazwyDni = ["poniedziałek","wtorek","środę","czwartek","piątek","sobotę","niedzielę"];
   elS.textContent = `dziś (${nazwyDni[dzienTygodnia]}, ${godzina}:00) — model`;
+
+  renderPrognozaHeatmapa();
+}
+
+// Heatmapa prognozy: dziś i jutro, godzina po godzinie, z tabeli predictions.json
+function renderPrognozaHeatmapa() {
+  const card = document.getElementById("prognozaCard");
+  const table = document.getElementById("prognozaTable");
+  if (!tabelaPredykcji) { card.style.display = "none"; return; }
+
+  const godziny = [];
+  for (let g = 6; g <= 21; g++) godziny.push(g);
+
+  const teraz = new Date();
+  const jutro = new Date(teraz);
+  jutro.setDate(teraz.getDate() + 1);
+
+  const nazwyDniKrotkie = ["Pon","Wt","Śr","Czw","Pt","Sob","Nd"];
+
+  function danePrognozyDlaDnia(dataObj) {
+    const miesiac = dataObj.getMonth() + 1;
+    const dzienTygodnia = (dataObj.getDay() + 6) % 7;
+    return godziny.map(g => tabelaPredykcji?.[miesiac]?.[dzienTygodnia]?.[g]);
+  }
+
+  const wiersze = [
+    { etykieta: `Dziś (${nazwyDniKrotkie[(teraz.getDay()+6)%7]} ${teraz.getDate()}.${teraz.getMonth()+1})`, wartosci: danePrognozyDlaDnia(teraz), jestDzis: true, dataObj: teraz },
+    { etykieta: `Jutro (${nazwyDniKrotkie[(jutro.getDay()+6)%7]} ${jutro.getDate()}.${jutro.getMonth()+1})`, wartosci: danePrognozyDlaDnia(jutro), jestDzis: false },
+  ];
+
+  const majaDane = wiersze.some(w => w.wartosci.some(v => v !== undefined));
+  if (!majaDane) { card.style.display = "none"; return; }
+  card.style.display = "block";
+
+  table.innerHTML = "";
+  const thead = document.createElement("tr");
+  thead.appendChild(document.createElement("th"));
+  godziny.forEach(g => {
+    const th = document.createElement("th");
+    th.textContent = g;
+    thead.appendChild(th);
+  });
+  table.appendChild(thead);
+
+  const godzinaTeraz = teraz.getHours();
+
+  wiersze.forEach(wiersz => {
+    const tr = document.createElement("tr");
+    const tdLabel = document.createElement("td");
+    tdLabel.className = "rowlabel";
+    tdLabel.textContent = wiersz.etykieta;
+    tr.appendChild(tdLabel);
+
+    godziny.forEach((g, i) => {
+      const wartosc = wiersz.wartosci[i];
+      const td = document.createElement("td");
+      td.className = "cell";
+      if (wartosc === undefined) {
+        td.classList.add("empty");
+      } else {
+        td.style.background = kolorHeatmapy(wartosc, 80);
+        td.textContent = Math.round(wartosc);
+        td.title = `${wiersz.etykieta}, ${g}:00 — przewidywane ${Math.round(wartosc)} osób`;
+        if (wiersz.jestDzis && g === godzinaTeraz) {
+          td.style.outline = "2px solid #1B2B34";
+          td.style.outlineOffset = "-2px";
+        }
+      }
+      tr.appendChild(td);
+    });
+    table.appendChild(tr);
+  });
 }
 
 function chip(label, active, onClick, extraClass) {

@@ -1,9 +1,9 @@
 {
-  "wytrenowano": "2026-10-06T22:00:40",
-  "liczba_wierszy_ogolem": 11514,
-  "liczba_wierszy_treningowych": 9211,
-  "liczba_wierszy_testowych": 2303,
-  "mae_osob": 7.26,
+  "wytrenowano": "2026-10-07T22:00:47",
+  "liczba_wierszy_ogolem": 11577,
+  "liczba_wierszy_treningowych": 9261,
+  "liczba_wierszy_testowych": 2316,
+  "mae_osob": 7.41,
   "cechy": [
     "godzina",
     "dzien_tygodnia",

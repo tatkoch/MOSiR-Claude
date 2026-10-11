@@ -53,6 +53,51 @@ FRAZY_ZAMKNIECIA = [
 ]
 
 
+MAKS_OKNO_ZNAKOW = 80      # ile znaków za napisem „OSÓB NA BASENIE” przeszukujemy
+MAKS_POJEMNOSC_MIN = 10    # sensowny zakres „maksimum” (limit osób na basenie)
+MAKS_POJEMNOSC_MAX = 500
+
+
+def wyciagnij_licznik(tekst):
+    """Z oczyszczonego tekstu strony wyciąga parę (aktualnie, maksimum).
+
+    Szuka napisu „OSÓB NA BASENIE” i pierwszej pary „X/Y” w jego pobliżu.
+    Dzięki temu nie psuje się, gdy ktoś (np. w panelu CMS) dopisze obok
+    licznika dodatkowe liczby lub tekst — liczby bez ukośnika są pomijane
+    (z ostrzeżeniem w logu), a para „X/Y” musi przejść kontrolę sensowności:
+    maksimum w rozsądnym zakresie i aktualnie <= maksimum.
+    """
+    kotwica = re.search(r"OS[ÓO]B\s+NA\s+BASENIE", tekst, re.IGNORECASE)
+    if not kotwica:
+        raise RuntimeError(
+            "Nie znaleziono napisu 'OSÓB NA BASENIE' na stronie — "
+            "układ strony mógł się zmienić, trzeba poprawić skrypt."
+        )
+
+    okno = tekst[kotwica.end(): kotwica.end() + MAKS_OKNO_ZNAKOW]
+
+    for m in re.finditer(r"(\d{1,4})\s*/\s*(\d{1,4})", okno):
+        aktualnie, maksimum = int(m.group(1)), int(m.group(2))
+        if not (MAKS_POJEMNOSC_MIN <= maksimum <= MAKS_POJEMNOSC_MAX):
+            continue
+        if aktualnie > maksimum:
+            continue
+
+        pominiete = okno[: m.start()].strip()
+        if pominiete:
+            print(
+                f"UWAGA: przed licznikiem {aktualnie}/{maksimum} na stronie jest "
+                f"dodatkowy tekst, który pomijam: „{pominiete}”",
+                file=sys.stderr,
+            )
+        return aktualnie, maksimum
+
+    raise RuntimeError(
+        "Przy napisie 'OSÓB NA BASENIE' nie ma poprawnego licznika 'X/Y' "
+        f"(fragment strony: „{okno.strip()}”)."
+    )
+
+
 def pobierz_dane(proby=3, opoznienie_sek=5):
     """Pobiera stronę i wyciąga parę liczb 'aktualnie/maksimum'.
 
@@ -82,18 +127,7 @@ def pobierz_dane(proby=3, opoznienie_sek=5):
                 if fraza in tekst_upper:
                     raise BasenZamkniety(f"Strona sygnalizuje zamknięcie basenu: „{fraza}”")
 
-            m = re.search(
-                r"OS[ÓO]B\s+NA\s+BASENIE\s*(\d{1,4})\s*/\s*(\d{1,4})",
-                tekst,
-                re.IGNORECASE,
-            )
-            if not m:
-                raise RuntimeError(
-                    "Nie znaleziono licznika 'OSÓB NA BASENIE' na stronie — "
-                    "układ strony mógł się zmienić, trzeba poprawić regex."
-                )
-
-            return int(m.group(1)), int(m.group(2))
+            return wyciagnij_licznik(tekst)
 
         except BasenZamkniety:
             raise  # nie ma sensu ponawiać — stan jest jednoznaczny

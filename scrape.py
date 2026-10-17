@@ -53,48 +53,52 @@ FRAZY_ZAMKNIECIA = [
 ]
 
 
-MAKS_OKNO_ZNAKOW = 80      # ile znaków za napisem „OSÓB NA BASENIE” przeszukujemy
+MAKS_OKNO_ZNAKOW = 200     # ile znaków za napisem „OSÓB NA BASENIE” przeszukujemy
 MAKS_POJEMNOSC_MIN = 10    # sensowny zakres „maksimum” (limit osób na basenie)
 MAKS_POJEMNOSC_MAX = 500
+
+
+class LicznikNieczytelny(Exception):
+    """Strona się pobrała, ale licznika nie da się odczytać (np. ktoś wpisał tam bzdury)."""
+    pass
 
 
 def wyciagnij_licznik(tekst):
     """Z oczyszczonego tekstu strony wyciąga parę (aktualnie, maksimum).
 
-    Szuka napisu „OSÓB NA BASENIE” i pierwszej pary „X/Y” w jego pobliżu.
-    Dzięki temu nie psuje się, gdy ktoś (np. w panelu CMS) dopisze obok
-    licznika dodatkowe liczby lub tekst — liczby bez ukośnika są pomijane
-    (z ostrzeżeniem w logu), a para „X/Y” musi przejść kontrolę sensowności:
-    maksimum w rozsądnym zakresie i aktualnie <= maksimum.
+    Sprawdza KAŻDE wystąpienie napisu „OSÓB NA BASENIE” (może być też w menu
+    czy tytule) i w każdym oknie szuka pary „X/Y”. Para musi przejść kontrolę
+    sensowności: maksimum w rozsądnym zakresie i aktualnie <= maksimum.
     """
-    kotwica = re.search(r"OS[ÓO]B\s+NA\s+BASENIE", tekst, re.IGNORECASE)
-    if not kotwica:
-        raise RuntimeError(
-            "Nie znaleziono napisu 'OSÓB NA BASENIE' na stronie — "
-            "układ strony mógł się zmienić, trzeba poprawić skrypt."
+    kotwice = list(re.finditer(r"OS[ÓO]B\s+NA\s+BASENIE", tekst, re.IGNORECASE))
+    if not kotwice:
+        raise LicznikNieczytelny(
+            "Nie znaleziono napisu 'OSÓB NA BASENIE' na stronie. "
+            f"Początek tekstu strony: „{tekst[:300]}”"
         )
 
-    okno = tekst[kotwica.end(): kotwica.end() + MAKS_OKNO_ZNAKOW]
+    fragmenty = []
+    for kotwica in kotwice:
+        okno = tekst[kotwica.end(): kotwica.end() + MAKS_OKNO_ZNAKOW]
+        fragmenty.append(okno.strip())
+        for m in re.finditer(r"(\d{1,4})\s*/\s*(\d{1,4})", okno):
+            aktualnie, maksimum = int(m.group(1)), int(m.group(2))
+            if not (MAKS_POJEMNOSC_MIN <= maksimum <= MAKS_POJEMNOSC_MAX):
+                continue
+            if aktualnie > maksimum:
+                continue
+            pominiete = okno[: m.start()].strip()
+            if pominiete:
+                print(
+                    f"UWAGA: przed licznikiem {aktualnie}/{maksimum} na stronie jest "
+                    f"dodatkowy tekst, który pomijam: „{pominiete}”",
+                    file=sys.stderr,
+                )
+            return aktualnie, maksimum
 
-    for m in re.finditer(r"(\d{1,4})\s*/\s*(\d{1,4})", okno):
-        aktualnie, maksimum = int(m.group(1)), int(m.group(2))
-        if not (MAKS_POJEMNOSC_MIN <= maksimum <= MAKS_POJEMNOSC_MAX):
-            continue
-        if aktualnie > maksimum:
-            continue
-
-        pominiete = okno[: m.start()].strip()
-        if pominiete:
-            print(
-                f"UWAGA: przed licznikiem {aktualnie}/{maksimum} na stronie jest "
-                f"dodatkowy tekst, który pomijam: „{pominiete}”",
-                file=sys.stderr,
-            )
-        return aktualnie, maksimum
-
-    raise RuntimeError(
-        "Przy napisie 'OSÓB NA BASENIE' nie ma poprawnego licznika 'X/Y' "
-        f"(fragment strony: „{okno.strip()}”)."
+    raise LicznikNieczytelny(
+        "Przy napisie 'OSÓB NA BASENIE' nie ma poprawnego licznika 'X/Y'. "
+        "Fragmenty strony za napisem: " + " | ".join(f"„{f}”" for f in fragmenty)
     )
 
 
@@ -118,6 +122,8 @@ def pobierz_dane(proby=3, opoznienie_sek=5):
             # Usuwamy znaczniki HTML, dekodujemy encje (np. &nbsp;, &oacute;)
             # i normalizujemy białe znaki — strona bywa różnie sformatowana
             # (np. "80/80" albo "80 / 80" z niełamliwą spacją).
+            html_tresc = re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", html_tresc)
+            html_tresc = re.sub(r"(?s)<!--.*?-->", " ", html_tresc)
             tekst = re.sub(r"<[^>]+>", " ", html_tresc)
             tekst = html.unescape(tekst)
             tekst = re.sub(r"\s+", " ", tekst)
@@ -129,8 +135,8 @@ def pobierz_dane(proby=3, opoznienie_sek=5):
 
             return wyciagnij_licznik(tekst)
 
-        except BasenZamkniety:
-            raise  # nie ma sensu ponawiać — stan jest jednoznaczny
+        except (BasenZamkniety, LicznikNieczytelny):
+            raise  # strona się pobrała, ponawianie nic nie zmieni
 
         except Exception as e:
             ostatni_blad = e
@@ -205,6 +211,12 @@ def main():
     except BasenZamkniety as e:
         print(f"{teraz.strftime('%Y-%m-%d %H:%M')} czasu PL -> {e} — pomijam zapis.")
         return
+    except LicznikNieczytelny as e:
+        # Strona działa, ale ktoś wpisał na niej coś nieczytelnego — to nie awaria
+        # skryptu. Pomijamy pomiar (bez czerwonego przebiegu), a szczegóły są w logu.
+        print(f"::warning::Licznik nieczytelny, pomijam pomiar. {e}")
+        print(f"{teraz.strftime('%Y-%m-%d %H:%M')} czasu PL -> licznik nieczytelny — pomijam zapis.")
+        return
     except Exception as e:
         print(f"Błąd pobierania danych: {e}", file=sys.stderr)
         sys.exit(1)
@@ -221,4 +233,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -128,12 +128,18 @@ def pobierz_dane(proby=3, opoznienie_sek=5):
             tekst = html.unescape(tekst)
             tekst = re.sub(r"\s+", " ", tekst)
 
-            tekst_upper = tekst.upper()
-            for fraza in FRAZY_ZAMKNIECIA:
-                if fraza in tekst_upper:
-                    raise BasenZamkniety(f"Strona sygnalizuje zamknięcie basenu: „{fraza}”")
-
-            return wyciagnij_licznik(tekst)
+            # Najpierw próbujemy odczytać licznik. Frazy zamknięcia („nieczynne”
+            # itp.) sprawdzamy dopiero, gdy licznika nie ma — na stronie bywają
+            # ogłoszenia o czymś innym (sauna, święta), które nie powinny
+            # blokować zapisu prawdziwego pomiaru.
+            try:
+                return wyciagnij_licznik(tekst)
+            except LicznikNieczytelny:
+                tekst_upper = tekst.upper()
+                for fraza in FRAZY_ZAMKNIECIA:
+                    if fraza in tekst_upper:
+                        raise BasenZamkniety(f"Strona sygnalizuje zamknięcie basenu: „{fraza}”")
+                raise
 
         except (BasenZamkniety, LicznikNieczytelny):
             raise  # strona się pobrała, ponawianie nic nie zmieni
@@ -209,6 +215,7 @@ def main():
     try:
         aktualnie, maksimum = pobierz_dane()
     except BasenZamkniety as e:
+        print(f"::warning::Pomijam pomiar: {e}")
         print(f"{teraz.strftime('%Y-%m-%d %H:%M')} czasu PL -> {e} — pomijam zapis.")
         return
     except LicznikNieczytelny as e:

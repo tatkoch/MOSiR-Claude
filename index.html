@@ -256,7 +256,7 @@ let rows = [];
 let tabelaPredykcji = null;
 let selYears = new Set();
 let selMonths = new Set();
-let selDays = new Set([(new Date().getDay() + 6) % 7]); // placeholder do czasu wczytania danych (ustawFiltryDomyslne ustawi dziś+jutro)
+let selDays = new Set([(new Date().getDay() + 6) % 7]); // placeholder do czasu wczytania danych (ustawFiltryDomyslne ustawi dzisiejszy dzień tygodnia)
 let selDates = new Set(); // konkretne daty (YYYY-MM-DD) uwzględnione w wykresie
 let chart = null;
 
@@ -277,17 +277,21 @@ function parseCsvText(text) {
 }
 
 // Domyślny stan filtrów po wczytaniu danych albo po kliknięciu "Wyzeruj filtry":
-// bieżący miesiąc, oraz dzisiejszy i jutrzejszy dzień tygodnia.
+// bieżący rok, bieżący i poprzedni miesiąc oraz tylko dzisiejszy dzień tygodnia.
 function ustawFiltryDomyslne() {
-  selYears = new Set(rows.map(r => r.rok));
-
   const teraz = new Date();
+  const rok = teraz.getFullYear();
   const biezacyMiesiac = teraz.getMonth() + 1;
-  selMonths = new Set([biezacyMiesiac]);
+  const poprzedniMiesiac = biezacyMiesiac === 1 ? 12 : biezacyMiesiac - 1;
+
+  // W styczniu poprzedni miesiąc (grudzień) należy do poprzedniego roku.
+  const lata = new Set([rok]);
+  if (biezacyMiesiac === 1) lata.add(rok - 1);
+  selYears = lata;
+  selMonths = new Set([biezacyMiesiac, poprzedniMiesiac]);
 
   const dzisDow = (teraz.getDay() + 6) % 7; // konwencja: poniedziałek=0
-  const jutroDow = (dzisDow + 1) % 7;
-  selDays = new Set([dzisDow, jutroDow]);
+  selDays = new Set([dzisDow]);
 
   odswiezDatyPasujaceDoFiltrow();
 }

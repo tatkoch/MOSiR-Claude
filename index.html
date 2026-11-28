@@ -290,7 +290,7 @@ function ustawFiltryDomyslne() {
   selYears = lata;
   selMonths = new Set([biezacyMiesiac, poprzedniMiesiac]);
 
-  const dzisDow = (teraz.getDay() + 6) % 7; // konwencja: poniedziałek=0
+  const dzisDow = teraz.getDay();
   selDays = new Set([dzisDow]);
 
   odswiezDatyPasujaceDoFiltrow();
